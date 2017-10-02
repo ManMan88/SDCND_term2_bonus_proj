@@ -118,6 +118,7 @@ void UKF::FirstMeasurementInitializer(MeasurementPackage meas_package){
   }
   // set the rest of the process uncertainty
   P_ = MatrixXd::Identity(5,5);
+  //cout << "x after initialization: " << endl << x_ << endl;
 
   //update time step
   time_us_ = meas_package.timestamp_;
@@ -137,6 +138,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   Complete this function! Make sure you switch between lidar and radar
   measurements.
   */
+  //cout << "HAS BEEN CALLED" << endl;
+
   if (!is_initialized_){
     FirstMeasurementInitializer(meas_package);
     return;
@@ -148,7 +151,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 
   ///* Prediction
   // if very small dt, skip prediction
-  if (dt > 0.001)
+  //if (dt > 0.001)
     Prediction(dt);
 
   ///* update measurement
@@ -160,7 +163,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     if (use_radar_)
       UpdateRadar(meas_package);
   }
-  //cout << "X vector: " << endl << x_ << endl;
+  //cout << "X vector prediction: " << endl << x_ << endl;
   //cout << "P Matrix: " << P_ << endl;
   return;
 }
@@ -238,6 +241,8 @@ void UKF::Prediction(double dt) {
   for (int i = 0; i < n_sig_; ++i)
     x_ += weights_(i)*Xsig_pred_.col(i);
 
+  //cout << "Predicted x:" << endl << x_ << endl;
+
   ///* derive covariance
   P_.setZero();
   VectorXd x_diff(n_x_);
@@ -275,7 +280,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
   x_ += K_*y_;
   P_ = (MatrixXd::Identity(n_x_,n_x_) - K_*H_)*P_;
-
+  //cout << "Lidar x:" << endl << x_ << endl;
   // compute NIS
   NIS_lidar = diff_z.transpose() * Si_ * diff_z;
   return;
@@ -370,7 +375,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   fixAngle(diff_z(1));
   x_ += K_*(diff_z);
   P_ -= K_*S_*K_.transpose();
-
+  //cout << "Radar x:" << endl << x_ << endl;
   // compute NIS
   NIS_radar = diff_z.transpose() * Si_ * diff_z;
   return;
@@ -384,4 +389,87 @@ void UKF::fixAngle(double &angle) {
   while (angle < -M_PI)
     angle += 2*M_PI;
   return;
+}
+
+
+VectorXd UKF::Predict_future(double dt) {
+  /**
+  TODO:
+
+  Complete this function! Estimate the object's location. Modify the state
+  vector, x_. Predict sigma points, the state, and the state covariance matrix.
+  */
+  VectorXd x_aug_ = VectorXd::Zero(n_aug_);
+  MatrixXd P_aug_ = MatrixXd::Zero(n_aug_,n_aug_);
+
+  // set augmented state vector
+  x_aug_.head(n_x_) = x_;
+
+  // set augmented uncertainty matrix
+  P_aug_.topLeftCorner(n_x_,n_x_) = P_;
+  P_aug_.bottomRightCorner(PROCESS_NOISE_SIZE,PROCESS_NOISE_SIZE) = Q_;
+
+  ///* generate sigma points
+  MatrixXd Xsig_aug_(n_aug_,n_sig_);
+  MatrixXd Xpred_future_(n_x_,n_sig_);
+  MatrixXd A_ = P_aug_.llt().matrixL();
+
+  Xsig_aug_.col(0) = x_aug_;
+  for (int i = 0; i < n_aug_; ++i){
+    Xsig_aug_.col(i+1) = x_aug_+ s_lam_n_a_*A_.col(i);
+    Xsig_aug_.col(i+n_aug_+1) = x_aug_- s_lam_n_a_*A_.col(i);
+  }
+
+  ///* predict sigma points
+  double dt2 = dt*dt;
+  double px,py,v,xi,xi_d,nu_a,nu_xid;
+
+  for (int i = 0; i < n_sig_; ++i){
+      px = Xsig_aug_(0,i);
+      py = Xsig_aug_(1,i);
+      v = Xsig_aug_(2,i);
+      xi = Xsig_aug_(3,i);
+      xi_d = Xsig_aug_(4,i);
+      nu_a = Xsig_aug_(5,i);
+      nu_xid = Xsig_aug_(6,i);
+
+      // compensate small values
+      if ( fabs(px) < 0.01 && fabs(py) < 0.01 ) {
+        px = 0.1;
+        py = 0.1;
+      }
+
+      // compensate small values of yawd (xi_d)
+      if (fabs(xi_d) < 0.001) {
+          Xpred_future_(0,i) = px + v*cos(xi)*dt;
+          Xpred_future_(1,i) = py + v*sin(xi)*dt;
+      }
+      else {
+          Xpred_future_(0,i) = px + (v/xi_d)*(sin(xi+xi_d*dt)-sin(xi));
+          Xpred_future_(1,i) = py + (v/xi_d)*(-cos(xi+xi_d*dt)+cos(xi));
+      }
+
+      Xpred_future_(0,i) += 0.5*dt2*cos(xi)*nu_a;
+      Xpred_future_(1,i) += 0.5*dt2*sin(xi)*nu_a;
+      Xpred_future_(2,i) = v + dt*nu_a;
+      Xpred_future_(3,i) = xi + xi_d*dt + 0.5*dt2*nu_xid;
+      Xpred_future_(4,i) = xi_d + dt*nu_xid;
+  }
+
+  ///* derive mean
+  VectorXd future_x_ = VectorXd::Zero(n_x_);
+  for (int i = 0; i < n_sig_; ++i)
+    future_x_ += weights_(i)*Xpred_future_.col(i);
+
+  //cout << "Predicted x:" << endl << x_ << endl;
+
+  ///* derive covariance
+//  P_.setZero();
+//  VectorXd x_diff(n_x_);
+//  for (int i = 0; i < n_sig_; ++i){
+//    x_diff = Xsig_pred_.col(i) - x_;
+//    fixAngle(x_diff(3));
+//    P_ += weights_(i) * x_diff * (x_diff.transpose());
+//  }
+  return future_x_;
 }

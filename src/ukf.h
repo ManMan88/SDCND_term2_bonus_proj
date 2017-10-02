@@ -120,6 +120,9 @@ public:
    */
   void Prediction(double delta_t);
 
+  ///* Predict a future position
+  VectorXd Predict_future(double delta_t);
+
   /**
    * Updates the state and the state covariance matrix using a laser measurement
    * @param meas_package The measurement at k+1

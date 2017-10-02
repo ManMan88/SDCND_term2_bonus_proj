@@ -31,11 +31,14 @@ int main()
 
   // Create a UKF instance
   UKF ukf;
-  
+
   double target_x = 0.0;
   double target_y = 0.0;
+  const double time_to_catch = 2.5; //seconds
+  long long time_to_predict = -1000000;
+  double dt;
 
-  h.onMessage([&ukf,&target_x,&target_y](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
+  h.onMessage([&ukf,&target_x,&target_y,&time_to_predict,&dt,&time_to_catch](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -45,20 +48,20 @@ int main()
 
       auto s = hasData(std::string(data));
       if (s != "") {
-      	
-      	
+
+
         auto j = json::parse(s);
         std::string event = j[0].get<std::string>();
-        
+
         if (event == "telemetry") {
           // j[1] is the data JSON object
 
           double hunter_x = std::stod(j[1]["hunter_x"].get<std::string>());
           double hunter_y = std::stod(j[1]["hunter_y"].get<std::string>());
           double hunter_heading = std::stod(j[1]["hunter_heading"].get<std::string>());
-          
+
           string lidar_measurment = j[1]["lidar_measurement"];
-          
+
           MeasurementPackage meas_package_L;
           istringstream iss_L(lidar_measurment);
     	  long long timestamp_L;
@@ -77,11 +80,11 @@ int main()
           meas_package_L.raw_measurements_ << px, py;
           iss_L >> timestamp_L;
           meas_package_L.timestamp_ = timestamp_L;
-          
+
     	  ukf.ProcessMeasurement(meas_package_L);
-		 
+
     	  string radar_measurment = j[1]["radar_measurement"];
-          
+
           MeasurementPackage meas_package_R;
           istringstream iss_R(radar_measurment);
     	  long long timestamp_R;
@@ -102,29 +105,40 @@ int main()
           meas_package_R.raw_measurements_ << ro,theta, ro_dot;
           iss_R >> timestamp_R;
           meas_package_R.timestamp_ = timestamp_R;
-          
+
     	  ukf.ProcessMeasurement(meas_package_R);
 
-	  target_x = ukf.x_[0];
-	  target_y = ukf.x_[1];
+        ///* Catch Plan
+        if (time_to_predict - timestamp_R< -10000){
+          time_to_predict = timestamp_R + time_to_catch*1000000;
+          cout << "RESET TIME" << endl;
+        }
+        dt = (time_to_predict - timestamp_R)/ 1000000.0;
+        if (dt > 0){
+          VectorXd x_prdicted = ukf.Predict_future(dt);
+          target_x = x_prdicted(0);
+          target_y = x_prdicted(1);
+        }
 
     	  double heading_to_target = atan2(target_y - hunter_y, target_x - hunter_x);
-    	  while (heading_to_target > M_PI) heading_to_target-=2.*M_PI; 
+    	  while (heading_to_target > M_PI) heading_to_target-=2.*M_PI;
     	  while (heading_to_target <-M_PI) heading_to_target+=2.*M_PI;
     	  //turn towards the target
     	  double heading_difference = heading_to_target - hunter_heading;
-    	  while (heading_difference > M_PI) heading_difference-=2.*M_PI; 
+    	  while (heading_difference > M_PI) heading_difference-=2.*M_PI;
     	  while (heading_difference <-M_PI) heading_difference+=2.*M_PI;
 
     	  double distance_difference = sqrt((target_y - hunter_y)*(target_y - hunter_y) + (target_x - hunter_x)*(target_x - hunter_x));
+        //cout << "heading_difference: " << heading_difference << endl;
+        //cout << "distance_difference: " << distance_difference << endl;
 
           json msgJson;
           msgJson["turn"] = heading_difference;
-          msgJson["dist"] = distance_difference; 
+          msgJson["dist"] = distance_difference;
           auto msg = "42[\"move_hunter\"," + msgJson.dump() + "]";
           // std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
-	  
+
         }
       } else {
         // Manual driving
