@@ -28,6 +28,19 @@ public:
   ///* state covariance matrix
   MatrixXd P_;
 
+  ///* lidar measurement matrix
+  MatrixXd H_;
+  MatrixXd Ht_;
+
+  ///* lidar measurement noise matrix
+  MatrixXd Rl_;
+
+  ///* radar measurement noise matrix
+  MatrixXd Rr_;
+
+  ///* process covariance matrix
+  MatrixXd Q_;
+
   ///* predicted sigma points matrix
   MatrixXd Xsig_pred_;
 
@@ -64,9 +77,20 @@ public:
   ///* Augmented state dimension
   int n_aug_;
 
+  ///* Number of sigma points
+  int n_sig_;
+
   ///* Sigma point spreading parameter
   double lambda_;
 
+  ///* sqrt(lambda + n_x)
+  double s_lam_n_a_;
+
+  ///* NIS for lidar
+  double NIS_lidar;
+
+  ///* NIS for radar
+  double NIS_radar;
 
   /**
    * Constructor
@@ -77,6 +101,11 @@ public:
    * Destructor
    */
   virtual ~UKF();
+
+  /**
+  *  First measurement initializer
+  */
+  void FirstMeasurementInitializer(MeasurementPackage meas_package);
 
   /**
    * ProcessMeasurement
@@ -102,6 +131,8 @@ public:
    * @param meas_package The measurement at k+1
    */
   void UpdateRadar(MeasurementPackage meas_package);
+
+  void fixAngle(double &angle);
 };
 
 #endif /* UKF_H */
