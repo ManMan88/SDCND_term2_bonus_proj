@@ -116,8 +116,12 @@ int main()
         dt = (time_to_predict - timestamp_R)/ 1000000.0;
         if (dt > 0){
           VectorXd x_prdicted = ukf.Predict_future(dt);
-          target_x = x_prdicted(0);
-          target_y = x_prdicted(1);
+          if (fabs(hunter_x - x_prdicted(0)) > 0.05 || fabs(hunter_y - x_prdicted(1)) > 0.05){    //dont m
+            if (fabs(target_x - x_prdicted(0)) > 0.05 || fabs(target_y - x_prdicted(1)) > 0.05){
+              target_x = x_prdicted(0);
+              target_y = x_prdicted(1);
+            }
+          }
         }
 
     	  double heading_to_target = atan2(target_y - hunter_y, target_x - hunter_x);
